@@ -1,0 +1,71 @@
+% مسح المتغيرات وإغلاق النوافذ
+clear all;
+close all;
+
+% إعداد الكاميرا
+try
+    cam = webcam; % فتح الكاميرا الافتراضية
+    cam.Resolution = '320x240'; % دقة منخفضة لتسريع الأداء
+catch
+    error('خطأ: لا يمكن الوصول إلى الكاميرا. تأكد من تثبيت Webcam Support Package وتوصيل الكاميرا.');
+end
+
+% إعداد كاشف الوجوه باستخدام Viola-Jones
+faceDetector = vision.CascadeObjectDetector('FrontalFaceCART');
+faceDetector.MinSize = [20 20]; 
+faceDetector.ScaleFactor = 1.2;
+faceDetector.MergeThreshold = 6;
+
+% نافذة العرض
+figure;
+axis off;
+set(gcf, 'NumberTitle', 'off', 'Name', 'Face Detection - Ovals');
+hImg = imshow(zeros(240, 320, 3, 'uint8')); % صورة فارغة كبداية
+hold on;
+
+% حلقة الكشف الحي
+while ishandle(hImg)
+    % التقاط صورة
+    frame = snapshot(cam);
+
+    % تحويل إلى تدرج رمادي لتسريع الكشف
+    gray = rgb2gray(frame);
+    gray = imgaussfilt(gray, 1);
+
+    % كشف الوجوه
+    bboxes = step(faceDetector, gray);
+
+    % تحديث الصورة في النافذة
+    set(hImg, 'CData', frame);
+
+    % حذف أي رسومات سابقة (دوائر نصوص.. إلخ)
+    delete(findall(gca, 'Type', 'line'));
+    delete(findall(gca, 'Type', 'text'));
+
+    % رسم دوائر بيضاوية حول الوجوه
+    for i = 1:size(bboxes, 1)
+        x = bboxes(i, 1);
+        y = bboxes(i, 2);
+        w = bboxes(i, 3);
+        h = bboxes(i, 4);
+
+        center_x = x + w/2;
+        center_y = y + h/2;
+        radius_x = w/2 * 1.1;
+        radius_y = h/2 * 1.2;
+
+        theta = linspace(0, 2*pi, 40);
+        ellipse_x = center_x + radius_x * cos(theta);
+        ellipse_y = center_y + radius_y * sin(theta);
+        plot(ellipse_x, ellipse_y, 'r', 'LineWidth', 2);
+    end
+
+    % عرض عدد الوجوه فوق الصورة
+    text(10, 20, sprintf('عدد الوجوه: %d', size(bboxes, 1)), ...
+         'Color', 'white', 'FontSize', 12, 'FontWeight', 'bold');
+
+    drawnow; % تحديث العرض
+end
+
+% تنظيف الكاميرا بعد الإغلاق
+clear cam;
