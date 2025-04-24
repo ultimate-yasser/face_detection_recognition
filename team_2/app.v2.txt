@@ -1,0 +1,125 @@
+classdef FaceDetectionApp < matlab.apps.AppBase
+
+    % Properties that correspond to app components
+    properties (Access = public)
+        UIFigure             matlab.ui.Figure
+        StartButton          matlab.ui.control.Button
+        UIAxes               matlab.ui.control.UIAxes
+        StatusLabel          matlab.ui.control.Label
+    end
+
+    properties (Access = private)
+        cam                  % Camera object
+        running = false;     % Loop control
+    end
+
+    methods (Access = private)
+
+        % Button pushed function: StartButton
+        function StartButtonPushed(app, event)
+            try
+                app.cam = webcam();
+                app.StatusLabel.Text = 'تم تشغيل الكاميرا.';
+            catch
+                uialert(app.UIFigure, 'لم يتم العثور على كاميرا ويب.', 'خطأ');
+                return;
+            end
+
+            app.running = true;
+            app.StartButton.Text = 'إيقاف';
+
+            while app.running && isvalid(app.UIFigure)
+                img = snapshot(app.cam);
+                ycbcrImg = rgb2ycbcr(img);
+                cb = ycbcrImg(:, :, 2);
+                cr = ycbcrImg(:, :, 3);
+
+                skinMask = (cb >= 75) & (cb <= 127) & (cr >= 133) & (cr <= 163);
+                se = strel('disk', 5);
+                cleanedMask = imopen(skinMask, se);
+
+                s = regionprops(cleanedMask, 'BoundingBox', 'Area');
+
+                faceCandidates = [];
+                for i = 1:length(s)
+                    box = s(i).BoundingBox;
+                    area = s(i).Area;
+                    aspectRatio = box(3) / box(4);
+                    if area > 4000 && area < 30000 && aspectRatio > 0.8 && aspectRatio < 1.4 && box(2) < size(img,1)*0.6
+                        faceCandidates = [faceCandidates; struct('box', box, 'area', area)];
+                    end
+                end
+
+                % اختار الوجه الأكبر فقط
+                if ~isempty(faceCandidates)
+                    [~, idx] = max([faceCandidates.area]);
+                    faceBBoxes = faceCandidates(idx).box;
+                    detectedImg = insertShape(img, 'Rectangle', faceBBoxes, 'Color', 'green', 'LineWidth', 3);
+                    app.StatusLabel.Text = 'تم اكتشاف وجه.';
+                else
+                    detectedImg = img;
+                    app.StatusLabel.Text = 'لم يتم العثور على أي وجه.';
+                end
+
+                imshow(detectedImg, 'Parent', app.UIAxes);
+                drawnow;
+            end
+
+            if ~isempty(app.cam)
+                clear app.cam;
+            end
+            app.StatusLabel.Text = 'تم إيقاف الكاميرا.';
+            app.StartButton.Text = 'ابدأ';
+        end
+    end
+
+    methods (Access = public)
+
+        % Construct app
+        function app = FaceDetectionApp
+            % Create and configure components
+            createComponents(app)
+        end
+
+        % Code that executes before app deletion
+        function delete(app)
+            if ~isempty(app.cam)
+                clear app.cam;
+            end
+            app.running = false;
+        end
+    end
+
+    methods (Access = private)
+
+        % Create UIFigure and components
+        function createComponents(app)
+
+            % Create UIFigure
+            app.UIFigure = uifigure('Visible', 'off');
+            app.UIFigure.Position = [100 100 700 500];
+            app.UIFigure.Name = 'Face Detection';
+
+            % Create StartButton
+            app.StartButton = uibutton(app.UIFigure, 'push');
+            app.StartButton.Position = [280 20 140 30];
+            app.StartButton.Text = 'ابدأ';
+            app.StartButton.ButtonPushedFcn = createCallbackFcn(app, @StartButtonPushed, true);
+
+            % Create UIAxes
+            app.UIAxes = uiaxes(app.UIFigure);
+            app.UIAxes.Position = [50 80 600 380];
+            app.UIAxes.XTick = [];
+            app.UIAxes.YTick = [];
+            app.UIAxes.Box = 'on';
+
+            % Create StatusLabel
+            app.StatusLabel = uilabel(app.UIFigure);
+            app.StatusLabel.Position = [50 470 600 22];
+            app.StatusLabel.Text = 'اضغط "ابدأ" لبدء كشف الوجوه.';
+
+            % Show the figure after all components are created
+            app.UIFigure.Visible = 'on';
+        end
+    end
+end
