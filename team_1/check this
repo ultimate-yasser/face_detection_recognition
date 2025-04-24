@@ -1,0 +1,159 @@
+function runFaceDetection()
+    cam = initializeWebcam();
+    videoPlayer = initializeVideoPlayer(cam);
+    runLoop = true;
+
+    isCheckOval = true;
+    eyeDetector = vision.CascadeObjectDetector('EyePairSmall');
+
+    while runLoop
+        frame = snapshot(cam);
+        objects = detectSkinObjects(frame);
+
+        for i = 1:length(objects)
+            objects(i).points = 0;
+
+            if isCheckOval && isOvalLikeShape(objects(i), frame)
+                objects(i).points = objects(i).points + 1;
+            end
+
+            if containsEyes(objects(i), frame, eyeDetector)
+                objects(i).points = objects(i).points + 1;
+            end
+        end
+
+        if isempty(objects)
+            step(videoPlayer, frame);
+            runLoop = isOpen(videoPlayer);
+            continue;
+        end
+
+        maxPts = max([objects.points]);
+        bestObjects = objects([objects.points] == maxPts);
+
+        for i = 1:length(bestObjects)
+            bbox = bestObjects(i).BoundingBox;
+            frame = insertShape(frame, 'Rectangle', bbox, 'LineWidth', 3, 'Color', 'green');
+        end
+
+        step(videoPlayer, frame);
+        runLoop = isOpen(videoPlayer);
+    end
+
+    clear cam;
+    release(videoPlayer);
+end
+
+function cam = initializeWebcam()
+    cam = webcam();
+end
+
+function videoPlayer = initializeVideoPlayer(cam)
+    frame = snapshot(cam);
+    frameSize = size(frame);
+    videoPlayer = vision.VideoPlayer('Position', [100 100 [frameSize(2), frameSize(1)] + 30]);
+end
+
+function objects = detectSkinObjects(frame)
+    imgYCbCr = rgb2ycbcr(frame);
+    Cb = imgYCbCr(:,:,2);
+    Cr = imgYCbCr(:,:,3);
+
+    % تعديل هنا لفلترة الأجسام حسب لون البشرة
+    skinMask = (Cb >= 77 & Cb <= 127) & (Cr >= 133 & Cr <= 173);
+    skinMask = medfilt2(skinMask, [5 5]);
+    skinMask = imfill(skinMask, 'holes');
+    skinMask = bwareaopen(skinMask, 100);  % إزالة المناطق الصغيرة
+
+    stats = regionprops(skinMask, 'BoundingBox', 'Area', 'Eccentricity');
+    minArea = 1500;  % تجاهل الأجسام الصغيرة جداً
+
+    objects = struct('BoundingBox', {}, 'Eccentricity', {}, 'points', {});
+    for i = 1:length(stats)
+        if stats(i).Area > minArea
+            objects(end+1).BoundingBox = stats(i).BoundingBox;
+            objects(end).Eccentricity = stats(i).Eccentricity;
+            objects(end).points = 0;
+        end
+    end
+end
+
+function isValid = isOvalLikeShape(obj, frame)
+    bbox = obj.BoundingBox;
+    width = round(bbox(3));
+    height = round(bbox(4));
+    x = round(bbox(1));
+    y = round(bbox(2));
+
+    [H, W, ~] = size(frame);
+    x = max(1, min(x, W));
+    y = max(1, min(y, H));
+    width = max(1, min(width, W - x));
+    height = max(1, min(height, H - y));
+
+    roi = frame(y:y+height-1, x:x+width-1, :);
+    grayROI = rgb2gray(roi);
+    bw = imbinarize(grayROI, 'adaptive');
+    bw = imfill(bw, 'holes');
+    bw = bwareafilt(bw, 1);  % أكبر كائن داخل ROI
+
+    props = regionprops(bw, 'Eccentricity', 'Solidity', 'Extent', ...
+                        'MajorAxisLength', 'MinorAxisLength');
+
+    if isempty(props)
+        isValid = false;
+        return;
+    end
+
+    % قراءة الخصائص الهندسية
+    eccentricity = props(1).Eccentricity;
+    solidity = props(1).Solidity;
+    extent = props(1).Extent;
+    majorAxis = props(1).MajorAxisLength;
+    minorAxis = props(1).MinorAxisLength;
+
+    axisRatio = minorAxis / majorAxis;
+    brightness = mean(grayROI(:));
+
+    % التحقق من ان الشكل بيضاوي ومش مضيء جداً
+    isValid = ...
+        eccentricity < 0.88 && ...
+        solidity > 0.85 && ...
+        extent >= 0.5 && extent <= 0.85 && ...
+        axisRatio >= 0.6 && axisRatio <= 1.25 && ...
+        brightness < 220 && ...
+        isSkinColor(roi); % هنا بنضيف التحقق من اللون
+end
+
+function isSkin = isSkinColor(roi)
+    % دالة للتحقق من أن الألوان في الـ ROI هي ألوان بشرة
+    imgYCbCr = rgb2ycbcr(roi);
+    Cb = imgYCbCr(:,:,2);
+    Cr = imgYCbCr(:,:,3);
+
+    % تحديد نطاقات الألوان للبشرة
+    skinMask = (Cb >= 77 & Cb <= 127) & (Cr >= 133 & Cr <= 173);
+    skinRatio = sum(skinMask(:)) / numel(skinMask);
+
+    % إذا كانت النسبة أكبر من 70% من الـ ROI هي لون البشرة
+    isSkin = skinRatio > 0.7;
+end
+
+function found = containsEyes(obj, frame, eyeDetector)
+    bbox = obj.BoundingBox;
+    width = round(bbox(3));
+    height = round(bbox(4));
+    x = round(bbox(1));
+    y = round(bbox(2));
+
+    [H, W, ~] = size(frame);
+    x = max(1, min(x, W));
+    y = max(1, min(y, H));
+    width = max(1, min(width, W - x));
+    height = max(1, min(height, H - y));
+
+    roi = frame(y:y+height-1, x:x+width-1, :);
+    eyeBBoxes = step(eyeDetector, roi);
+
+    found = ~isempty(eyeBBoxes);
+end
