@@ -1,3 +1,4 @@
+
 function runFaceDetection()
     cam = initializeWebcam();
     videoPlayer = initializeVideoPlayer(cam);
@@ -28,13 +29,20 @@ function runFaceDetection()
             continue;
         end
 
+        % Select only the object with the highest score (points)
         maxPts = max([objects.points]);
         bestObjects = objects([objects.points] == maxPts);
 
-        for i = 1:length(bestObjects)
-            bbox = bestObjects(i).BoundingBox;
-            frame = insertShape(frame, 'Rectangle', bbox, 'LineWidth', 3, 'Color', 'green');
+        % If there are multiple objects with the same score, choose the largest one
+        if length(bestObjects) > 1
+            areas = arrayfun(@(obj) prod(obj.BoundingBox(3:4)), bestObjects);  % Calculate area
+            [~, idx] = max(areas);  % Find the index of the largest object
+            bestObjects = bestObjects(idx);  % Select the largest object
         end
+
+        % Draw the bounding box around the selected object
+        bbox = bestObjects.BoundingBox;
+        frame = insertShape(frame, 'Rectangle', bbox, 'LineWidth', 3, 'Color', 'green');
 
         step(videoPlayer, frame);
         runLoop = isOpen(videoPlayer);
@@ -66,7 +74,7 @@ function objects = detectSkinObjects(frame)
     skinMask = bwareaopen(skinMask, 100);  % Remove small regions
 
     stats = regionprops(skinMask, 'BoundingBox', 'Area', 'Eccentricity');
-    minArea = 20000;  % Minimum size set to 20000 pixels
+    minArea = 1500;  % Minimum size set to 1500 pixels
 
     objects = struct('BoundingBox', {}, 'Eccentricity', {}, 'points', {});
     for i = 1:length(stats)
