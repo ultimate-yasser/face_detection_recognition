@@ -59,14 +59,14 @@ function objects = detectSkinObjects(frame)
     Cb = imgYCbCr(:,:,2);
     Cr = imgYCbCr(:,:,3);
 
-    % تعديل هنا لفلترة الأجسام حسب لون البشرة
-    skinMask = (Cb >= 77 & Cb <= 127) & (Cr >= 133 & Cr <= 173);
+    % Filter objects based on skin tone color (human skin color range in YCbCr)
+    skinMask = (Cb >= 77 & Cb <= 127) & (Cr >= 133 & Cr <= 173);  % Human skin tone range
     skinMask = medfilt2(skinMask, [5 5]);
     skinMask = imfill(skinMask, 'holes');
-    skinMask = bwareaopen(skinMask, 100);  % إزالة المناطق الصغيرة
+    skinMask = bwareaopen(skinMask, 100);  % Remove small regions
 
     stats = regionprops(skinMask, 'BoundingBox', 'Area', 'Eccentricity');
-    minArea = 1500;  % تجاهل الأجسام الصغيرة جداً
+    minArea = 20000;  % Minimum size set to 20000 pixels
 
     objects = struct('BoundingBox', {}, 'Eccentricity', {}, 'points', {});
     for i = 1:length(stats)
@@ -95,47 +95,48 @@ function isValid = isOvalLikeShape(obj, frame)
     grayROI = rgb2gray(roi);
     bw = imbinarize(grayROI, 'adaptive');
     bw = imfill(bw, 'holes');
-    bw = bwareafilt(bw, 1);  % أكبر كائن داخل ROI
+    bw = bwareafilt(bw, 1);  % Largest object inside ROI
 
     props = regionprops(bw, 'Eccentricity', 'Solidity', 'Extent', ...
-                        'MajorAxisLength', 'MinorAxisLength');
+                        'MajorAxisLength', 'MinorAxisLength', 'Area');
 
     if isempty(props)
         isValid = false;
         return;
     end
 
-    % قراءة الخصائص الهندسية
+    % Read the geometric properties
     eccentricity = props(1).Eccentricity;
     solidity = props(1).Solidity;
     extent = props(1).Extent;
     majorAxis = props(1).MajorAxisLength;
     minorAxis = props(1).MinorAxisLength;
+    area = props(1).Area;
 
     axisRatio = minorAxis / majorAxis;
     brightness = mean(grayROI(:));
 
-    % التحقق من ان الشكل بيضاوي ومش مضيء جداً
+    % Check if the shape is oval-like and not too bright
     isValid = ...
-        eccentricity < 0.88 && ...
-        solidity > 0.85 && ...
+        eccentricity < 0.85 && ...  % Reject non-oval shapes
+        solidity > 0.9 && ...       % Higher solidity for human-like shapes
         extent >= 0.5 && extent <= 0.85 && ...
-        axisRatio >= 0.6 && axisRatio <= 1.25 && ...
-        brightness < 220 && ...
-        isSkinColor(roi); % هنا بنضيف التحقق من اللون
+        axisRatio >= 0.7 && axisRatio <= 1.3 && ...  % Aspect ratio of an oval
+        brightness < 220 && ...  % Reject overly bright areas
+        isSkinColor(roi);  % Check if the ROI contains human skin color
 end
 
 function isSkin = isSkinColor(roi)
-    % دالة للتحقق من أن الألوان في الـ ROI هي ألوان بشرة
+    % Check if the colors in the ROI are human skin color (based on YCbCr)
     imgYCbCr = rgb2ycbcr(roi);
     Cb = imgYCbCr(:,:,2);
     Cr = imgYCbCr(:,:,3);
 
-    % تحديد نطاقات الألوان للبشرة
-    skinMask = (Cb >= 77 & Cb <= 127) & (Cr >= 133 & Cr <= 173);
+    % Human skin color range in Cb and Cr
+    skinMask = (Cb >= 77 & Cb <= 127) & (Cr >= 133 & Cr <= 173);  % Human skin tone range
     skinRatio = sum(skinMask(:)) / numel(skinMask);
 
-    % إذا كانت النسبة أكبر من 70% من الـ ROI هي لون البشرة
+    % If more than 70% of the ROI is skin color, consider it a valid skin object
     isSkin = skinRatio > 0.7;
 end
 
