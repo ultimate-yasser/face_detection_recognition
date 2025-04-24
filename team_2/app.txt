@@ -1,0 +1,68 @@
+function FaceDetectionApp
+    % إنشاء الواجهة
+    fig = uifigure('Name', 'برنامج اكتشاف الوجه', 'Position', [100 100 700 500]);
+
+    % محور لعرض الصورة
+    ax = uiaxes(fig, 'Position', [50 100 600 350]);
+
+    % زر تشغيل
+    startBtn = uibutton(fig, 'push', 'Text', 'تشغيل الكاميرا', ...
+        'Position', [150 30 150 40], 'ButtonPushedFcn', @(btn,event) startCamera(ax));
+
+    % زر إيقاف
+    stopBtn = uibutton(fig, 'push', 'Text', 'إيقاف الكاميرا', ...
+        'Position', [400 30 150 40], 'ButtonPushedFcn', @(btn,event) stopCamera());
+
+    % المتغيرات العالمية
+    global cam isRunning;
+    cam = [];
+    isRunning = false;
+end
+
+function startCamera(ax)
+    global cam isRunning;
+    try
+        cam = webcam;
+    catch
+        uialert(ax.Parent, 'لم يتم العثور على كاميرا ويب.', 'خطأ');
+        return;
+    end
+
+    isRunning = true;
+    while isRunning && isvalid(ax)
+        img = snapshot(cam);
+        ycbcrImg = rgb2ycbcr(img);
+        cb = ycbcrImg(:, :, 2);
+        cr = ycbcrImg(:, :, 3);
+        skinMask = (cb >= 77) & (cb <= 127) & (cr >= 133) & (cr <= 173);
+        skinMask = bwareaopen(skinMask, 500);
+        se = strel('disk', 5);
+        cleanedMask = imopen(skinMask, se);
+        s = regionprops(cleanedMask, 'BoundingBox', 'Area');
+
+        faceBBoxes = [];
+        for i = 1:length(s)
+            box = s(i).BoundingBox;
+            area = s(i).Area;
+            aspectRatio = box(3) / box(4);
+            if area > 4000 && area < 30000 && aspectRatio > 0.8 && aspectRatio < 1.4 && box(2) < size(img,1)*0.6
+                faceBBoxes = [faceBBoxes; box];
+            end
+        end
+
+        if ~isempty(faceBBoxes)
+            img = insertShape(img, 'Rectangle', faceBBoxes, 'Color', 'green', 'LineWidth', 3);
+        end
+
+        imshow(img, 'Parent', ax);
+        drawnow;
+    end
+end
+
+function stopCamera()
+    global cam isRunning;
+    isRunning = false;
+    if ~isempty(cam)
+        clear cam;
+    end
+end
