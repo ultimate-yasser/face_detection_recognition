@@ -4,7 +4,6 @@ function runFaceDetection()
     runLoop = true;
 
     isCheckOval = true;
-    eyeDetector = vision.CascadeObjectDetector('EyePairSmall');
 
     selectedObject = [];  % Initialize variable to store the selected object
     previousBbox = [];  % Store the previous bounding box for tracking
@@ -17,10 +16,6 @@ function runFaceDetection()
             objects(i).points = 0;
 
             if isCheckOval && isOvalLikeShape(objects(i), frame)
-                objects(i).points = objects(i).points + 1;
-            end
-
-            if containsEyes(objects(i), frame, eyeDetector)
                 objects(i).points = objects(i).points + 1;
             end
         end
@@ -160,25 +155,6 @@ function isSkin = isSkinColor(roi)
 
     % If more than 70% of the ROI is skin color, consider it a valid skin object
     isSkin = skinRatio > 0.7;
-end
-
-function found = containsEyes(obj, frame, eyeDetector)
-    bbox = obj.BoundingBox;
-    width = round(bbox(3));
-    height = round(bbox(4));
-    x = round(bbox(1));
-    y = round(bbox(2));
-
-    [H, W, ~] = size(frame);
-    x = max(1, min(x, W));
-    y = max(1, min(y, H));
-    width = max(1, min(width, W - x));
-    height = max(1, min(height, H - y));
-
-    roi = frame(y:y+height-1, x:x+width-1, :);
-    eyeBBoxes = step(eyeDetector, roi);
-
-    found = ~isempty(eyeBBoxes);
 end
 
 function selectedObject = trackObject(selectedObject, objects, previousBbox)
