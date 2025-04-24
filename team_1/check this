@@ -1,4 +1,3 @@
-
 function runFaceDetection()
     cam = initializeWebcam();
     videoPlayer = initializeVideoPlayer(cam);
@@ -6,6 +5,9 @@ function runFaceDetection()
 
     isCheckOval = true;
     eyeDetector = vision.CascadeObjectDetector('EyePairSmall');
+
+    selectedObject = [];  % Initialize variable to store the selected object
+    previousBbox = [];  % Store the previous bounding box for tracking
 
     while runLoop
         frame = snapshot(cam);
@@ -29,20 +31,32 @@ function runFaceDetection()
             continue;
         end
 
-        % Select only the object with the highest score (points)
-        maxPts = max([objects.points]);
-        bestObjects = objects([objects.points] == maxPts);
+        % If no object has been selected yet, select the one with the highest score (points)
+        if isempty(selectedObject)
+            maxPts = max([objects.points]);
+            bestObjects = objects([objects.points] == maxPts);
 
-        % If there are multiple objects with the same score, choose the largest one
-        if length(bestObjects) > 1
-            areas = arrayfun(@(obj) prod(obj.BoundingBox(3:4)), bestObjects);  % Calculate area
-            [~, idx] = max(areas);  % Find the index of the largest object
-            bestObjects = bestObjects(idx);  % Select the largest object
+            % If there are multiple objects with the same score, choose the largest one
+            if length(bestObjects) > 1
+                areas = arrayfun(@(obj) prod(obj.BoundingBox(3:4)), bestObjects);  % Calculate area
+                [~, idx] = max(areas);  % Find the index of the largest object
+                selectedObject = bestObjects(idx);  % Select the largest object
+                previousBbox = selectedObject.BoundingBox;  % Store the previous bounding box
+            else
+                selectedObject = bestObjects(1);  % Select the object with the highest points
+                previousBbox = selectedObject.BoundingBox;  % Store the previous bounding box
+            end
+        else
+            % Update the selected object's position based on the previously selected object
+            selectedObject = trackObject(selectedObject, objects, previousBbox);
+            previousBbox = selectedObject.BoundingBox;  % Update previous bounding box
         end
 
-        % Draw the bounding box around the selected object
-        bbox = bestObjects.BoundingBox;
-        frame = insertShape(frame, 'Rectangle', bbox, 'LineWidth', 3, 'Color', 'green');
+        % Draw the bounding box around the selected object (locked object)
+        if ~isempty(selectedObject)
+            bbox = selectedObject.BoundingBox;
+            frame = insertShape(frame, 'Rectangle', bbox, 'LineWidth', 3, 'Color', 'green');
+        end
 
         step(videoPlayer, frame);
         runLoop = isOpen(videoPlayer);
@@ -165,4 +179,16 @@ function found = containsEyes(obj, frame, eyeDetector)
     eyeBBoxes = step(eyeDetector, roi);
 
     found = ~isempty(eyeBBoxes);
+end
+
+function selectedObject = trackObject(selectedObject, objects, previousBbox)
+    % Track the selected object by comparing its bounding box in the current frame
+    maxIoU = 0;  % Maximum Intersection over Union (IoU)
+    for i = 1:length(objects)
+        IoU = bboxOverlapRatio(selectedObject.BoundingBox, objects(i).BoundingBox);
+        if IoU > maxIoU
+            maxIoU = IoU;
+            selectedObject = objects(i);  % Update the selected object
+        end
+    end
 end
